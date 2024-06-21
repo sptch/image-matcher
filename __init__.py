@@ -108,6 +108,8 @@ def register_classes(unregister=False):
         pnp.PNP_OT_calibrate_camera,
         pnp.PNP_OT_pose_camera,
         pnp.PNP_OT_reset_camera,
+        pnp.PNP_OT_solve_sequence,
+        pnp.PNP_OT_update_current_frames,
         ui.ImagePanel,
         ui.PointsPanel,
         ui.CalibratePanel,

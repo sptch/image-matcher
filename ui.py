@@ -85,10 +85,12 @@ class ImagePanel(bpy.types.Panel):
     bl_space_type = "CLIP_EDITOR"
     bl_region_type = "TOOLS"
     bl_category = "Image Match"
+    
 
     def draw(self, context):
         layout = self.layout
         settings = context.scene.match_settings
+        current_image = settings.image_matches[settings.current_image_name]
 
         row = layout.row(align=True)
         row.label(text="Image filepath:")
@@ -109,6 +111,35 @@ class ImagePanel(bpy.types.Panel):
             settings,
             "active_image_index",
             rows=3,
+        )
+        row = layout.row()
+        row.operator(
+            "imagematches.toggle_camera",
+            text="Toggle camera view",
+            icon="VIEW_CAMERA",
+        )
+        row = layout.row(align=True)
+        row.prop(
+            current_image.camera.data,
+            "clip_start",
+            text="Clip start",
+        )
+        row.prop(
+            current_image.camera.data,
+            "clip_end",
+            text="Clip end",
+        )
+        row = layout.row()
+        row.prop(
+            current_image.camera.data,
+            "show_background_images",
+            text="Show matched image",
+        )
+        row = layout.row()
+        row.prop(
+            current_image.camera.data.background_images[0],
+            "alpha",
+            text="Image opacity",
         )
 
 
@@ -263,7 +294,6 @@ class CalibratePanel(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("pnp.reset_camera", text="Reset Camera")
 
-
 class SolvePanel(bpy.types.Panel):
     """Panel for all PNP solver settings"""
 
@@ -288,37 +318,17 @@ class SolvePanel(bpy.types.Panel):
         row.scale_y = 2.0
 
         row = layout.row()
-        row.label(text=settings.pnp_solve_msg)
+        row.operator("pnp.solve_sequence_pnp", text="Solve Camera Pose for Sequence")
+        row.scale_y = 2.0
 
         row = layout.row()
-        row.operator(
-            "imagematches.toggle_camera",
-            text="Toggle camera view",
-            icon="VIEW_CAMERA",
-        )
-        row = layout.row(align=True)
-        row.prop(
-            current_image.camera.data,
-            "clip_start",
-            text="Clip start",
-        )
-        row.prop(
-            current_image.camera.data,
-            "clip_end",
-            text="Clip end",
-        )
+        row.operator("pnp.update_current_frames", text="Update Camera Pose for Existing Keyframes")
+        row.scale_y = 2.0
+
         row = layout.row()
-        row.prop(
-            current_image.camera.data,
-            "show_background_images",
-            text="Show matched image",
-        )
-        row = layout.row()
-        row.prop(
-            current_image.camera.data.background_images[0],
-            "alpha",
-            text="Image opacity",
-        )
+        row.label(text=settings.pnp_solve_msg)
+
+ 
 
 
 class ExportPanel(bpy.types.Panel):

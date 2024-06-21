@@ -26,14 +26,14 @@ def set_optical_centre(clip_camera, optical_centre):
     else:
         clip_camera.principal_point_pixels = optical_centre
 
-
-def get_2D_3D_point_coordinates(self, point_matches, clip):
+def get_2D_3D_point_coordinates(self, point_matches, clip, frame):
     """Get coordinates of all 2D-3D point matches. Discards any matches with
     only a 2D point or only a 3D point.
 
     Args:
         point_matches: current point matches
         clip: current Blender movie clip
+        frame: The current frame number for retrieving marker coordinates
 
     Returns:
         Two numpy arrays of equal size - the first being the coordinates of all
@@ -51,24 +51,23 @@ def get_2D_3D_point_coordinates(self, point_matches, clip):
     points_ignored = False
 
     for point_match in point_matches:
-        # Only process matches with both 2D and 3D point initialised -
+        # Only process matches with both 2D and 3D points initialized -
         # rest ignored
-        if (
-            point_match.is_point_2d_initialised
-            and point_match.is_point_3d_initialised
-        ):
+        if point_match.is_point_2d_initialised and point_match.is_point_3d_initialised:
             points_3d_coords.append(point_match.point_3d.location)
 
             track = tracks[point_match.point_2d]
-            # .co runs from 0 to 1 on each axis of the image, so multiply
-            # by image size to get full coordinates
-            point_2d_coordinates = [
-                track.markers[0].co[0] * size[0],
-                size[1] - track.markers[0].co[1] * size[1],
-            ]
-
-            points_2d_coords.append(point_2d_coordinates)
-
+            marker = track.markers.find_frame(frame, exact=True)
+            if marker and not marker.mute:
+                # .co runs from 0 to 1 on each axis of the image, so multiply
+                # by image size to get full coordinates
+                point_2d_coordinates = [
+                    marker.co[0] * size[0],
+                    size[1] - marker.co[1] * size[1]
+                ]
+                points_2d_coords.append(point_2d_coordinates)
+            else:
+                points_ignored = True
         else:
             points_ignored = True
 
@@ -153,6 +152,7 @@ def get_scene_info(self, context):
 
     settings = context.scene.match_settings
     current_image = settings.image_matches[settings.current_image_name]
+    frame = bpy.data.scenes[0].frame_current
 
     clip = current_image.movie_clip
 
@@ -161,10 +161,11 @@ def get_scene_info(self, context):
     clip_camera = clip.tracking.camera
 
     points_2d_coords, points_3d_coords = get_2D_3D_point_coordinates(
-        self, current_image.point_matches, clip
+        self, current_image.point_matches, clip, frame
     )
     camera_intrinsics = get_camera_intrinsics(clip_camera, size)
     distortion_coefficients = get_distortion_coefficients(self, clip_camera)
+
 
     return (
         self,
@@ -174,8 +175,8 @@ def get_scene_info(self, context):
         points_2d_coords,
         camera_intrinsics,
         distortion_coefficients,
+        frame,
     )
-
 
 def solve_pnp(
     self,
@@ -185,6 +186,7 @@ def solve_pnp(
     points_2d_coords,
     camera_intrinsics,
     distortion_coefficients,
+    frame
 ):
     """Solve camera pose with OpenCV's PNP solver. Set the current camera
     intrinsics, extrinsics and background image to match
@@ -196,6 +198,7 @@ def solve_pnp(
         points_2d_coords: numpy array of 2D point coordinates
         camera_intrinsics: numpy array of camera intrinsics
         distortion_coefficients: numpy array of camera distortion coefficients
+        frame: The current frame number for keyframe insertion
 
     Returns:
         Status for operator - cancelled or finished
@@ -297,6 +300,16 @@ def solve_pnp(
     background_image.clip_user.use_render_undistorted = True
 
     camera.matrix_world = Matrix.Translation(loc) @ rot.to_4x4()
+    
+    # Insert keyframes for animation
+    camera.keyframe_insert(data_path="location", frame=frame)
+    camera.keyframe_insert(data_path="rotation_euler", frame=frame)
+    camera.data.keyframe_insert(data_path="shift_x", frame=frame)
+    camera.data.keyframe_insert(data_path="shift_y", frame=frame)
+    camera.data.keyframe_insert(data_path="lens", frame=frame)
+    camera.data.keyframe_insert(data_path="sensor_height", frame=frame)
+    camera.data.keyframe_insert(data_path="sensor_fit", frame=frame)
+
     context.scene.camera = camera
 
     return {"FINISHED"}
@@ -395,6 +408,17 @@ def calibrate_camera(
     return {"FINISHED"}
 
 
+def solve_sequence_pnp(self, context):
+    """Solve camera pose for each frame in the current frame range."""
+    scene = context.scene
+    start_frame = scene.frame_start
+    end_frame = scene.frame_end
+    for frame in range(start_frame, end_frame + 1):
+        scene.frame_set(frame)
+        solve_pnp(*get_scene_info(self, context))
+    return {"FINISHED"}
+
+
 class PNP_OT_reset_camera(bpy.types.Operator):
     """Reset camera intrinsics to default values"""
 
@@ -455,3 +479,55 @@ class PNP_OT_calibrate_camera(bpy.types.Operator):
 
         # call solver
         return calibrate_camera(*get_scene_info(self, context))
+
+
+class PNP_OT_solve_sequence(bpy.types.Operator):
+    """Solve camera extrinsics for each frame in the current frame range"""
+
+    bl_idname = "pnp.solve_sequence_pnp"
+    bl_label = "Solve camera extrinsics for sequence"
+    bl_options = {"UNDO"}
+
+    def execute(self, context):
+        settings = context.scene.match_settings
+
+        if settings.model.mode != "OBJECT":
+            self.report({"ERROR"}, "Please switch to Object Mode")
+            return {"CANCELLED"}
+
+        return solve_sequence_pnp(self, context)
+
+
+def update_current_frames(self, context):
+    """Update camera pose for frames that have keyframes set."""
+    scene = context.scene
+    camera = context.scene.camera
+
+    keyframes = set()
+    if camera.animation_data and camera.animation_data.action:
+        for fcurve in camera.animation_data.action.fcurves:
+            for keyframe in fcurve.keyframe_points:
+                keyframes.add(int(keyframe.co[0]))
+
+    for frame in keyframes:
+        scene.frame_set(frame)
+        solve_pnp(*get_scene_info(self, context))
+
+    return {"FINISHED"}
+
+
+class PNP_OT_update_current_frames(bpy.types.Operator):
+    """Update camera extrinsics for frames with existing keyframes"""
+
+    bl_idname = "pnp.update_current_frames"
+    bl_label = "Update camera extrinsics for existing keyframes"
+    bl_options = {"UNDO"}
+
+    def execute(self, context):
+        settings = context.scene.match_settings
+
+        if settings.model.mode != "OBJECT":
+            self.report({"ERROR"}, "Please switch to Object Mode")
+            return {"CANCELLED"}
+
+        return update_current_frames(self, context)
