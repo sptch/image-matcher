@@ -90,7 +90,6 @@ class ImagePanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         settings = context.scene.match_settings
-        current_image = settings.image_matches[settings.current_image_name]
 
         row = layout.row(align=True)
         row.label(text="Image filepath:")
@@ -118,29 +117,35 @@ class ImagePanel(bpy.types.Panel):
             text="Toggle camera view",
             icon="VIEW_CAMERA",
         )
-        row = layout.row(align=True)
-        row.prop(
+
+        current_image = settings.image_matches[settings.current_image_name]
+        if current_image is not None:
+            row = layout.row(align=True)
+            row.prop(
             current_image.camera.data,
             "clip_start",
             text="Clip start",
-        )
-        row.prop(
+            )
+            row.prop(
             current_image.camera.data,
             "clip_end",
             text="Clip end",
-        )
-        row = layout.row()
-        row.prop(
+            )
+            row = layout.row()
+            row.prop(
             current_image.camera.data,
             "show_background_images",
             text="Show matched image",
-        )
-        row = layout.row()
-        row.prop(
+            )
+            row = layout.row()
+            row.prop(
             current_image.camera.data.background_images[0],
             "alpha",
             text="Image opacity",
-        )
+            )
+           
+
+       
 
 
 class PointsPanel(bpy.types.Panel):
