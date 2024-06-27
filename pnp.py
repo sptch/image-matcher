@@ -323,6 +323,7 @@ def calibrate_camera(
     points_2d_coords,
     camera_intrinsics,
     distortion_coefficients,
+    frame,
 ):
     """Calibrate current tracking camera using openCV. Sets the intrinsics
     that are currently specified in the settings.
