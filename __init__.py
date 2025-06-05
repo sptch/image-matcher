@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Image Matcher",
     "author": "Center for Spatial Technologies",
-    "version": (1, 0, 5),
+    "version": (1, 1, 0),
     "blender": (3, 6, 2),
     "location": "Clip Editor > Tools > Solve > Image Matcher",
     "description": "Matches 2D images to the 3D model (builds on Kimberly Meechan's RT Studio's Camera Pnpoint plugin)",
@@ -115,6 +115,7 @@ def register_classes(unregister=False):
         pnp.PNP_OT_reset_camera,
         pnp.PNP_OT_solve_sequence,
         pnp.PNP_OT_update_current_frames,
+        pnp.PNP_OT_live_solve_toggle,  # New live solve operator
         ui.ImagePanel,
         ui.PointsPanel,
         ui.CalibratePanel,

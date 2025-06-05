@@ -318,18 +318,66 @@ class SolvePanel(bpy.types.Panel):
         settings = context.scene.match_settings
         current_image = settings.image_matches[settings.current_image_name]
 
-        row = layout.row()
+        # Manual solve buttons
+        col = layout.column()
+        col.label(text="Manual Solving:", icon="PLAY")
+        
+        row = col.row()
         row.operator("pnp.solve_pnp", text="Solve Camera Pose")
-        row.scale_y = 2.0
+        row.scale_y = 1.5
 
-        row = layout.row()
+        row = col.row()
         row.operator("pnp.solve_sequence_pnp", text="Solve Camera Pose for Sequence")
-        row.scale_y = 2.0
+        row.scale_y = 1.2
 
-        row = layout.row()
+        row = col.row()
         row.operator("pnp.update_current_frames", text="Update Camera Pose for Existing Keyframes")
-        row.scale_y = 2.0
+        row.scale_y = 1.2
 
+        # Separator
+        layout.separator()
+        
+        # Live solving section
+        col = layout.column()
+        col.label(text="Live Solving:", icon="AUTO")
+        
+        # Live solve toggle button
+        row = col.row()
+        if settings.live_solve_enabled:
+            live_icon = "PAUSE"
+            live_text = "Stop Live Solve"
+            live_color = True
+        else:
+            live_icon = "PLAY"
+            live_text = "Start Live Solve"
+            live_color = False
+            
+        live_op = row.operator("pnp.live_solve_toggle", text=live_text, icon=live_icon)
+        row.scale_y = 1.8
+        
+        # Color the button differently when active
+        if live_color:
+            row.alert = True
+        
+        # Live solve status
+        if settings.live_solve_enabled:
+            status_row = col.row()
+            status_row.label(text=f"Status: {settings.live_solve_status}", icon="INFO")
+            
+        # Live solve settings (only show when not active)
+        if not settings.live_solve_enabled:
+            box = col.box()
+            box.label(text="Live Solve Settings:")
+            
+            settings_col = box.column(align=True)
+            settings_col.prop(settings, "live_solve_sensitivity", text="Sensitivity")
+            settings_col.prop(settings, "live_solve_update_rate", text="Update Rate (frames)")
+            settings_col.prop(settings, "live_solve_auto_keyframe", text="Auto Keyframe")
+
+        # Separator
+        layout.separator()
+
+        # Solve message
         row = layout.row()
         row.label(text=settings.pnp_solve_msg)
 

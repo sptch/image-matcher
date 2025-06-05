@@ -5,6 +5,7 @@ import bpy
 import cv2 as cv
 import numpy as np
 from mathutils import Matrix, Vector
+import time
 
 
 def get_optical_centre(clip_camera):
@@ -71,7 +72,7 @@ def get_2D_3D_point_coordinates(self, point_matches, clip, frame):
         else:
             points_ignored = True
 
-    if points_ignored:
+    if points_ignored and hasattr(self, 'report'):
         self.report({"WARNING"}, "Ignoring points with only 2D or only 3D")
 
     points_2d_coords = np.asarray(points_2d_coords, dtype="double")
@@ -96,10 +97,11 @@ def get_distortion_coefficients(self, clip_camera):
     else:
         # Unsupported distortion model - just set to defaults of 0
         k1, k2, k3 = 0.0, 0.0, 0.0
-        self.report(
-            {"WARNING"},
-            "Current distortion model is not supported, use Polynomial instead.",
-        )
+        if hasattr(self, 'report'):
+            self.report(
+                {"WARNING"},
+                "Current distortion model is not supported, use Polynomial instead.",
+            )
 
     # construct distortion vector, only k1,k2,k3 (polynomial or brown models)
     distortion_coefficients = np.array([k1, k2, 0, 0, k3])
@@ -208,10 +210,11 @@ def solve_pnp(
     size = clip.size
 
     if npoints < 4:
-        self.report(
-            {"ERROR"},
-            "Not enough point pairs, use at least 4 markers to solve a camera pose.",
-        )
+        if hasattr(self, 'report'):
+            self.report(
+                {"ERROR"},
+                "Not enough point pairs, use at least 4 markers to solve a camera pose.",
+            )
         return {"CANCELLED"}
 
     # solve Perspective-n-Point
@@ -301,14 +304,15 @@ def solve_pnp(
 
     camera.matrix_world = Matrix.Translation(loc) @ rot.to_4x4()
     
-    # Insert keyframes for animation
-    camera.keyframe_insert(data_path="location", frame=frame)
-    camera.keyframe_insert(data_path="rotation_euler", frame=frame)
-    camera.data.keyframe_insert(data_path="shift_x", frame=frame)
-    camera.data.keyframe_insert(data_path="shift_y", frame=frame)
-    camera.data.keyframe_insert(data_path="lens", frame=frame)
-    camera.data.keyframe_insert(data_path="sensor_height", frame=frame)
-    camera.data.keyframe_insert(data_path="sensor_fit", frame=frame)
+    # Insert keyframes for animation only if auto keyframe is enabled or not in live mode
+    if not hasattr(settings, 'live_solve_enabled') or not settings.live_solve_enabled or settings.live_solve_auto_keyframe:
+        camera.keyframe_insert(data_path="location", frame=frame)
+        camera.keyframe_insert(data_path="rotation_euler", frame=frame)
+        camera.data.keyframe_insert(data_path="shift_x", frame=frame)
+        camera.data.keyframe_insert(data_path="shift_y", frame=frame)
+        camera.data.keyframe_insert(data_path="lens", frame=frame)
+        camera.data.keyframe_insert(data_path="sensor_height", frame=frame)
+        camera.data.keyframe_insert(data_path="sensor_fit", frame=frame)
 
     context.scene.camera = camera
 
@@ -418,6 +422,58 @@ def solve_sequence_pnp(self, context):
         scene.frame_set(frame)
         solve_pnp(*get_scene_info(self, context))
     return {"FINISHED"}
+
+
+def get_current_state_hash(context):
+    """Get a hash of current point positions and camera parameters for change detection"""
+    try:
+        settings = context.scene.match_settings
+        if settings.current_image_name not in settings.image_matches:
+            return None
+            
+        current_image = settings.image_matches[settings.current_image_name]
+        clip = current_image.movie_clip
+        
+        if not clip:
+            return None
+            
+        state_data = []
+        
+        # Get 2D point positions
+        tracks = clip.tracking.objects[0].tracks
+        frame = bpy.data.scenes[0].frame_current
+        
+        for point_match in current_image.point_matches:
+            if point_match.is_point_2d_initialised and point_match.is_point_3d_initialised:
+                # 2D point position
+                track = tracks[point_match.point_2d]
+                marker = track.markers.find_frame(frame, exact=True)
+                if marker and not marker.mute:
+                    state_data.extend([marker.co[0], marker.co[1]])
+                
+                # 3D point position
+                point_3d = point_match.point_3d
+                state_data.extend([point_3d.location[0], point_3d.location[1], point_3d.location[2]])
+        
+        # Get camera parameters
+        tracking_camera = clip.tracking.camera
+        state_data.extend([
+            tracking_camera.focal_length_pixels,
+            tracking_camera.k1,
+            tracking_camera.k2,
+            tracking_camera.k3,
+        ])
+        
+        optical_centre = get_optical_centre(tracking_camera)
+        state_data.extend([optical_centre[0], optical_centre[1]])
+        
+        # Convert to string for hashing
+        state_str = "_".join([f"{x:.6f}" for x in state_data])
+        return hash(state_str)
+        
+    except Exception as e:
+        print(f"Error getting state hash: {e}")
+        return None
 
 
 class PNP_OT_reset_camera(bpy.types.Operator):
@@ -532,3 +588,115 @@ class PNP_OT_update_current_frames(bpy.types.Operator):
             return {"CANCELLED"}
 
         return update_current_frames(self, context)
+
+
+class PNP_OT_live_solve_toggle(bpy.types.Operator):
+    """Toggle live camera pose solving"""
+
+    bl_idname = "pnp.live_solve_toggle"
+    bl_label = "Toggle Live Solve"
+    bl_options = {"REGISTER"}
+
+    _timer = None
+    _last_state_hash = None
+    _frame_counter = 0
+    _solving = False
+
+    @classmethod
+    def poll(cls, context):
+        settings = context.scene.match_settings
+        return (settings.current_image_name != "" and 
+                settings.model is not None and
+                settings.model.mode == "OBJECT")
+
+    def modal(self, context, event):
+        settings = context.scene.match_settings
+        
+        if not settings.live_solve_enabled:
+            self.cancel(context)
+            return {'CANCELLED'}
+
+        if event.type == 'ESC':
+            settings.live_solve_enabled = False
+            self.cancel(context)
+            return {'CANCELLED'}
+
+        if event.type == 'TIMER':
+            # Only check for changes every N frames based on update rate
+            self._frame_counter += 1
+            if self._frame_counter < settings.live_solve_update_rate:
+                return {'PASS_THROUGH'}
+            
+            self._frame_counter = 0
+            
+            # Don't check if we're currently solving to avoid recursion
+            if self._solving:
+                return {'PASS_THROUGH'}
+            
+            # Get current state hash
+            current_hash = get_current_state_hash(context)
+            
+            if current_hash is None:
+                settings.live_solve_status = "Error: No valid data"
+                return {'PASS_THROUGH'}
+            
+            # Check if state has changed
+            if self._last_state_hash is not None and current_hash != self._last_state_hash:
+                settings.live_solve_status = "Solving..."
+                
+                # Solve camera pose
+                self._solving = True
+                try:
+                    scene_info = get_scene_info(self, context)
+                    if scene_info:
+                        result = solve_pnp(*scene_info)
+                        if result == {"FINISHED"}:
+                            settings.live_solve_status = f"Live solving - {settings.pnp_solve_msg}"
+                        else:
+                            settings.live_solve_status = "Solve failed"
+                except Exception as e:
+                    settings.live_solve_status = f"Error: {str(e)}"
+                    print(f"Live solve error: {e}")
+                finally:
+                    self._solving = False
+            elif self._last_state_hash is None:
+                settings.live_solve_status = "Live solving active"
+            
+            self._last_state_hash = current_hash
+
+        return {'PASS_THROUGH'}
+
+    def execute(self, context):
+        settings = context.scene.match_settings
+        
+        if settings.live_solve_enabled:
+            # Stop live solving
+            settings.live_solve_enabled = False
+            settings.live_solve_status = "Stopped"
+            return {'FINISHED'}
+        else:
+            # Start live solving
+            settings.live_solve_enabled = True
+            settings.live_solve_status = "Starting..."
+            
+            # Reset state
+            self._last_state_hash = None
+            self._frame_counter = 0
+            self._solving = False
+            
+            # Add timer for modal operator
+            wm = context.window_manager
+            self._timer = wm.event_timer_add(0.1, window=context.window)
+            wm.modal_handler_add(self)
+            
+            return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        settings = context.scene.match_settings
+        settings.live_solve_enabled = False
+        settings.live_solve_status = "Stopped"
+        
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None

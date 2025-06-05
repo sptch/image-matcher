@@ -45,6 +45,12 @@ def auto_fill_ts_id(self, context):
         self.ts_export_id = id_val
 
 
+def update_live_solve_sensitivity(self, context):
+    """Update live solve sensitivity when property changes"""
+    # Force update of sensitivity in live solver if it's running
+    pass
+
+
 export_types = [("BLENDER", "Blender", "", 1), ("THREEJS", "ThreeJS", "", 2)]
 
 
@@ -236,4 +242,43 @@ class ImageMatchSettings(bpy.types.PropertyGroup):
 
     export_type: bpy.props.EnumProperty(
         name="Export type", description="Export type", items=export_types
+    )
+
+    # Live tracking properties
+    live_solve_enabled: bpy.props.BoolProperty(
+        name="Live solve enabled",
+        description="Enable live camera pose solving when points or camera parameters change",
+        default=False,
+        update=force_redraw,
+    )
+
+    live_solve_sensitivity: bpy.props.FloatProperty(
+        name="Live solve sensitivity",
+        description="Minimum change threshold to trigger live solve (in pixels for 2D points, meters for 3D points)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        step=0.01,
+        precision=4,
+        update=update_live_solve_sensitivity,
+    )
+
+    live_solve_update_rate: bpy.props.IntProperty(
+        name="Live solve update rate",
+        description="How often to check for changes (frames between checks)",
+        default=5,
+        min=1,
+        max=60,
+    )
+
+    live_solve_auto_keyframe: bpy.props.BoolProperty(
+        name="Auto keyframe",
+        description="Automatically insert keyframes when live solving",
+        default=False,
+    )
+
+    live_solve_status: bpy.props.StringProperty(
+        name="Live solve status",
+        description="Current status of live solver",
+        default="Stopped",
     )
