@@ -1,4 +1,5 @@
 import bpy
+import datetime
 
 
 def force_redraw(self, context):
@@ -32,6 +33,16 @@ def update_active_point_match(self, context):
                 track.select = True
                 tracks.active = track
                 break
+
+
+def auto_fill_ts_id(self, context):
+    """Auto-fill TypeScript ID based on name"""
+    if not self.ts_export_id and self.ts_export_name:
+        # Convert name to kebab-case ID
+        id_val = self.ts_export_name.lower().replace(" ", "-").replace("_", "-")
+        # Remove special characters except hyphens
+        id_val = ''.join(c for c in id_val if c.isalnum() or c == '-')
+        self.ts_export_id = id_val
 
 
 export_types = [("BLENDER", "Blender", "", 1), ("THREEJS", "ThreeJS", "", 2)]

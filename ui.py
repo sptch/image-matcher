@@ -335,6 +335,147 @@ class SolvePanel(bpy.types.Panel):
 
  
 
+class TypeScriptExportSettings(bpy.types.Panel):
+    """Collapsible sub-panel for TypeScript export settings"""
+
+    bl_label = "TypeScript Export Settings"
+    bl_idname = "CLIP_PT_TypeScript_Export_Settings"
+    bl_space_type = "CLIP_EDITOR"
+    bl_region_type = "TOOLS"
+    bl_category = "Image Match"
+
+    bl_parent_id = "CLIP_PT_Export"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(self, context):
+        return current_image_initialised(context)
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.match_settings
+        
+        if settings.current_image_name not in settings.image_matches:
+            return
+            
+        current_image = settings.image_matches[settings.current_image_name]
+        camera = current_image.camera
+        
+        # Check if properties exist
+        has_properties = all(prop in camera for prop in [
+            "ts_export_id", "ts_export_name", "ts_export_category", 
+            "ts_export_datetime", "ts_export_description", "ts_export_tags"
+        ])
+        
+        if not has_properties:
+            col = layout.column()
+            col.label(text="TypeScript properties not initialized", icon="INFO")
+            init_op = col.operator("camera.init_typescript_properties", 
+                                  text="Initialize Properties", 
+                                  icon="ADD")
+            init_op.camera_name = camera.name
+            return
+
+        # Object metadata
+        col = layout.column()
+        col.prop(camera, '["ts_export_id"]', text="ID")
+        col.prop(camera, '["ts_export_name"]', text="Name")
+        col.prop(camera, '["ts_export_category"]', text="Category")
+        col.prop(camera, '["ts_export_datetime"]', text="DateTime")
+        
+        col.separator()
+        
+        # Description and tags (reference image auto-filled from clip)
+        col.prop(camera, '["ts_export_description"]', text="Description")
+        col.prop(camera, '["ts_export_tags"]', text="Tags")
+
+        col.separator()
+
+        # Copy buttons
+        col = layout.column(align=True)
+        col.operator("imagematches.copy_typescript_object", 
+                    text="Copy Current as TypeScript Object", 
+                    icon="COPYDOWN")
+        col.operator("imagematches.copy_all_typescript_objects", 
+                    text="Copy All as TypeScript Objects", 
+                    icon="DOCUMENTS")
+
+
+class SceneCameraExportPanel(bpy.types.Panel):
+    """Panel for scene camera TypeScript export in 3D view"""
+
+    bl_label = "Camera TypeScript Export"
+    bl_idname = "VIEW3D_PT_Camera_TypeScript_Export"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Tool"
+
+    def draw(self, context):
+        layout = self.layout
+        
+        col = layout.column()
+        
+        # Scene camera section
+        col.label(text="Scene Camera:", icon="CAMERA_DATA")
+        if context.scene.camera:
+            camera = context.scene.camera
+            
+            # Check if properties exist
+            has_properties = all(prop in camera for prop in [
+                "ts_export_id", "ts_export_name", "ts_export_category", 
+                "ts_export_datetime", "ts_export_reference_image",
+                "ts_export_description", "ts_export_tags"
+            ])
+            
+            if not has_properties:
+                col.label(text=f"Camera: {camera.name}")
+                init_op = col.operator("camera.init_typescript_properties", 
+                                      text="Initialize Properties", 
+                                      icon="ADD")
+                init_op.camera_name = camera.name
+            else:
+                col.prop(camera, '["ts_export_id"]', text="ID")
+                col.prop(camera, '["ts_export_name"]', text="Name") 
+                col.prop(camera, '["ts_export_category"]', text="Category")
+                col.prop(camera, '["ts_export_datetime"]', text="DateTime")
+                col.prop(camera, '["ts_export_reference_image"]', text="Reference Image")
+                col.prop(camera, '["ts_export_description"]', text="Description")
+                col.prop(camera, '["ts_export_tags"]', text="Tags")
+                
+                col.separator()
+                col.operator("view3d.copy_scene_camera_typescript", 
+                            text="Copy Scene Camera", 
+                            icon="COPYDOWN")
+        else:
+            col.label(text="No active scene camera", icon="ERROR")
+            
+        col.separator()
+        
+        # Selected camera section
+        col.label(text="Selected Camera:", icon="OUTLINER_OB_CAMERA")
+        if context.active_object and context.active_object.type == 'CAMERA':
+            camera = context.active_object
+            col.label(text=f"Active: {camera.name}")
+            
+            # Check if properties exist for selected camera
+            has_properties = all(prop in camera for prop in [
+                "ts_export_id", "ts_export_name", "ts_export_category", 
+                "ts_export_datetime", "ts_export_reference_image",
+                "ts_export_description", "ts_export_tags"
+            ])
+            
+            if not has_properties:
+                init_op = col.operator("camera.init_typescript_properties", 
+                                      text="Initialize Properties", 
+                                      icon="ADD")
+                init_op.camera_name = camera.name
+            else:
+                col.operator("view3d.copy_selected_camera_typescript",
+                            text="Copy Selected Camera", 
+                            icon="COPYDOWN")
+        else:
+            col.label(text="No camera selected", icon="INFO")
+
 
 class ExportPanel(bpy.types.Panel):
     """Panel for all image match export settings"""
