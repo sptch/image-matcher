@@ -75,6 +75,12 @@ class IMAGE_UL_UI(bpy.types.UIList):
 
         col = layout.column()
         col.label(text=image.name)
+        
+        #Delete image button
+        col = layout.column(align=True)
+        col.emboss = 'NONE'
+        remove_op = col.operator("imagematches.remove_image", text="", icon="X")
+        remove_op.index = index
 
 
 class ImagePanel(bpy.types.Panel):

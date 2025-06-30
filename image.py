@@ -135,6 +135,25 @@ class IMAGE_OT_swap_image(bpy.types.Operator):
 
         return {"FINISHED"}
 
+class IMAGE_OT_remove_image(bpy.types.Operator):
+    """Delete image from list"""
+    bl_idname = "imagematches.remove_image"
+    bl_label = "Remove Image"
+    index: bpy.props.IntProperty()
+    def execute(self, context):
+        settings = context.scene.match_settings
+        image_matches = settings.image_matches
+        if 0 <= self.index < len(image_matches):
+            image = image_matches[self.index]
+            # Si l'image supprimée est l'image active, reset le nom actif
+            if image.name == settings.current_image_name:
+                settings.current_image_name = ""
+            image_matches.remove(self.index)
+
+            # Ajust index 
+            if settings.active_image_index >= len(image_matches):
+                settings.active_image_index = len(image_matches) - 1
+        return {'FINISHED'}
 
 def coordinates_within_region(region, region_coordinate):
     """Check if region coordinate is within region"""
