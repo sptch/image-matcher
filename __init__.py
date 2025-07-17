@@ -133,6 +133,8 @@ def register_classes(unregister=False):
         image.IMAGE_OT_delete_2d_point,
         image.IMAGE_OT_toggle_camera_view,
         image.IMAGE_OT_update_3d_point_size,
+        image.IMAGE_OT_show_simple_rays,
+        image.IMAGE_OT_delete_simple_rays,
     ]
 
     if unregister:

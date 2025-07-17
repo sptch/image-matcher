@@ -700,3 +700,132 @@ class PNP_OT_live_solve_toggle(bpy.types.Operator):
         if self._timer:
             wm.event_timer_remove(self._timer)
             self._timer = None
+
+
+def create_simple_rays_from_2d_points(context):
+    """Create simple line objects from camera through each 2D point"""
+    
+    settings = context.scene.match_settings
+    
+    if settings.current_image_name == "":
+        return
+        
+    current_image = settings.image_matches[settings.current_image_name]
+    clip = current_image.movie_clip
+    camera = current_image.camera
+    
+    if not clip or not camera:
+        return
+    
+    # Get camera parameters
+    size = clip.size
+    tracks = clip.tracking.objects[0].tracks
+    frame = bpy.data.scenes[0].frame_current
+    
+    # Get camera position
+    camera_location = camera.location
+    
+    # Get camera intrinsics
+    clip_camera = clip.tracking.camera
+    camera_intrinsics = get_camera_intrinsics(clip_camera, size)
+    
+    # Get or create rays collection within the camera's collection
+    camera_collection = current_image.image_collection
+    rays_collection = None
+    
+    # Look for existing rays collection
+    for child_collection in camera_collection.children:
+        if child_collection.name == "rays":
+            rays_collection = child_collection
+            break
+    
+    # Create rays collection if it doesn't exist
+    if rays_collection is None:
+        rays_collection = bpy.data.collections.new("rays")
+        camera_collection.children.link(rays_collection)
+    else:
+        # If rays collection exists, delete all existing rays to replace them
+        for obj in list(rays_collection.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+    
+    # Process each 2D point
+    for point_match in current_image.point_matches:
+        if point_match.is_point_2d_initialised:
+            track = tracks[point_match.point_2d]
+            marker = track.markers.find_frame(frame, exact=True)
+            
+            if marker and not marker.mute:
+                # Convert 2D marker coordinates to normalized coordinates
+                marker_2d = [
+                    marker.co[0] * size[0],
+                    size[1] - marker.co[1] * size[1]
+                ]
+                
+                # Convert to normalized camera coordinates
+                normalized_x = (marker_2d[0] - camera_intrinsics[0][2]) / camera_intrinsics[0][0]
+                normalized_y = (marker_2d[1] - camera_intrinsics[1][2]) / camera_intrinsics[1][1]
+                
+                # Create ray direction in camera space (fix upside down by negating y)
+                ray_direction_camera = Vector((normalized_x, -normalized_y, -1.0))
+                ray_direction_camera.normalize()
+                
+                # Transform to world space
+                camera_matrix = camera.matrix_world
+                ray_direction_world = camera_matrix.to_3x3() @ ray_direction_camera
+                
+                # Create ray endpoint with much longer length
+                ray_length = 100000.0  # Extended from 10.0 to 100000.0
+                ray_end = camera_location + ray_direction_world * ray_length
+                
+                # Create curve object for the ray
+                curve_data = bpy.data.curves.new(name=f"Ray_{track.name}", type='CURVE')
+                curve_data.dimensions = '3D'
+                curve_data.resolution_u = 2
+                
+                # Create spline
+                spline = curve_data.splines.new('NURBS')
+                spline.points.add(1)  # Add one more point (already has one)
+                
+                # Set points
+                spline.points[0].co = (camera_location.x, camera_location.y, camera_location.z, 1.0)
+                spline.points[1].co = (ray_end.x, ray_end.y, ray_end.z, 1.0)
+                
+                # Create object
+                ray_object = bpy.data.objects.new(f"Ray_{track.name}", curve_data)
+                
+                # Add ray to the rays collection
+                rays_collection.objects.link(ray_object)
+
+
+def delete_rays_from_collection(context):
+    """Delete all rays from the rays collection"""
+    
+    settings = context.scene.match_settings
+    
+    if settings.current_image_name == "":
+        return False
+        
+    current_image = settings.image_matches[settings.current_image_name]
+    
+    if not current_image.image_collection:
+        return False
+    
+    # Look for existing rays collection
+    camera_collection = current_image.image_collection
+    rays_collection = None
+    
+    for child_collection in camera_collection.children:
+        if child_collection.name == "rays":
+            rays_collection = child_collection
+            break
+    
+    if rays_collection is not None:
+        # Delete all objects in the rays collection
+        for obj in list(rays_collection.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        
+        # Remove the empty collection
+        bpy.data.collections.remove(rays_collection, do_unlink=True)
+        return True
+    
+    return False

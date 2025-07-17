@@ -676,3 +676,80 @@ class IMAGE_OT_update_3d_point_size(bpy.types.Operator):
                     )
 
         return {"FINISHED"}
+
+
+class IMAGE_OT_show_simple_rays(bpy.types.Operator):
+    """Show simple rays from camera through 2D points"""
+
+    bl_idname = "imagematches.show_simple_rays"
+    bl_label = "Show Simple Rays"
+
+    def execute(self, context):
+        from . import pnp
+        
+        settings = context.scene.match_settings
+        
+        if settings.current_image_name == "":
+            self.report({"ERROR"}, "No image selected")
+            return {"CANCELLED"}
+        
+        if settings.current_image_name not in settings.image_matches:
+            self.report({"ERROR"}, "Current image not found")
+            return {"CANCELLED"}
+        
+        current_image = settings.image_matches[settings.current_image_name]
+        
+        if not current_image.movie_clip:
+            self.report({"ERROR"}, "No movie clip for current image")
+            return {"CANCELLED"}
+        
+        if not current_image.camera:
+            self.report({"ERROR"}, "No camera for current image")
+            return {"CANCELLED"}
+        
+        # Check if there are any 2D points
+        has_2d_points = any(point.is_point_2d_initialised for point in current_image.point_matches)
+        if not has_2d_points:
+            self.report({"WARNING"}, "No 2D points found to create rays")
+            return {"CANCELLED"}
+        
+        try:
+            pnp.create_simple_rays_from_2d_points(context)
+            self.report({"INFO"}, "Rays created successfully")
+        except Exception as e:
+            self.report({"ERROR"}, f"Failed to create rays: {str(e)}")
+            return {"CANCELLED"}
+        
+        return {"FINISHED"}
+
+
+class IMAGE_OT_delete_simple_rays(bpy.types.Operator):
+    """Delete all rays from the rays collection"""
+
+    bl_idname = "imagematches.delete_simple_rays"
+    bl_label = "Delete Rays"
+
+    def execute(self, context):
+        from . import pnp
+        
+        settings = context.scene.match_settings
+        
+        if settings.current_image_name == "":
+            self.report({"ERROR"}, "No image selected")
+            return {"CANCELLED"}
+        
+        if settings.current_image_name not in settings.image_matches:
+            self.report({"ERROR"}, "Current image not found")
+            return {"CANCELLED"}
+        
+        try:
+            success = pnp.delete_rays_from_collection(context)
+            if success:
+                self.report({"INFO"}, "Rays deleted successfully")
+            else:
+                self.report({"INFO"}, "No rays found to delete")
+        except Exception as e:
+            self.report({"ERROR"}, f"Failed to delete rays: {str(e)}")
+            return {"CANCELLED"}
+        
+        return {"FINISHED"}

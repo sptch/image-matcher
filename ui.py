@@ -193,6 +193,10 @@ class PointsPanel(bpy.types.Panel):
             depress=settings.point_mode_enabled,
         )
 
+        row = layout.row(align=True)
+        row.operator("imagematches.show_simple_rays", text="Show Rays")
+        row.operator("imagematches.delete_simple_rays", text="Delete Rays")
+
         row = layout.row()
         current_image = settings.image_matches[settings.current_image_name]
         row.template_list(
