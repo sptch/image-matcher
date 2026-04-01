@@ -229,7 +229,7 @@ def solve_pnp(
 
     settings = context.scene.match_settings
     settings.pnp_solve_msg = (
-        ("Reprojection Error: %.2f" % error) if ret else "solvePnP failed!"
+        ("Reprojection Error: %.2f" % float(error.ravel()[0])) if ret else "solvePnP failed!"
     )
 
     # calculate projection errors for each point pair
@@ -248,7 +248,7 @@ def solve_pnp(
     # get R and T matrices
     # https://blender.stackexchange.com/questions/38009/3x4-camera-matrix-from-blender-camera
     R_world2cv = Matrix(rmat.tolist())
-    T_world2cv = Vector(tvec[0])
+    T_world2cv = Vector(tvec[0].ravel().tolist())
 
     # blender camera to opencv camera coordinate conversion
     R_bcam2cv = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, -1)))

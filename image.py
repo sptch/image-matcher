@@ -219,8 +219,12 @@ def obj_ray_cast(ray_origin, ray_target, obj, matrix):
     ray_target_obj = matrix_inv @ ray_target
     ray_direction_obj = ray_target_obj - ray_origin_obj
 
+    # use evaluated object to ensure mesh data is available (Blender 5.1+)
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = obj.evaluated_get(depsgraph)
+
     # cast the ray
-    success, location, normal, face_index = obj.ray_cast(
+    success, location, normal, face_index = eval_obj.ray_cast(
         ray_origin_obj, ray_direction_obj
     )
 
@@ -519,7 +523,7 @@ class IMAGE_OT_delete_2d_point(bpy.types.Operator):
                         track.select = True
                         # Couldn't see a simple way to delete a track directly,
                         # so use an ops call
-                        bpy.ops.clip.delete_track(False)
+                        bpy.ops.clip.delete_track('EXEC_DEFAULT')
 
                         point.is_point_2d_initialised = False
                         point.point_2d = ""

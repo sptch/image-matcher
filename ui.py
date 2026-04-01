@@ -4,7 +4,10 @@ import bpy
 def current_image_initialised(context):
     """Check if current image has been initialised"""
     settings = context.scene.match_settings
-    return settings.current_image_name != ""
+    return (
+        settings.current_image_name != ""
+        and settings.image_matches.get(settings.current_image_name) is not None
+    )
 
 
 class POINT_UL_UI(bpy.types.UIList):
@@ -118,30 +121,30 @@ class ImagePanel(bpy.types.Panel):
             icon="VIEW_CAMERA",
         )
 
-        current_image = settings.image_matches[settings.current_image_name]
-        if current_image is not None:
+        if current_image_initialised(context):
+            current_image = settings.image_matches[settings.current_image_name]
             row = layout.row(align=True)
             row.prop(
-            current_image.camera.data,
-            "clip_start",
-            text="Clip start",
+                current_image.camera.data,
+                "clip_start",
+                text="Clip start",
             )
             row.prop(
-            current_image.camera.data,
-            "clip_end",
-            text="Clip end",
-            )
-            row = layout.row()
-            row.prop(
-            current_image.camera.data,
-            "show_background_images",
-            text="Show matched image",
+                current_image.camera.data,
+                "clip_end",
+                text="Clip end",
             )
             row = layout.row()
             row.prop(
-            current_image.camera.data.background_images[0],
-            "alpha",
-            text="Image opacity",
+                current_image.camera.data,
+                "show_background_images",
+                text="Show matched image",
+            )
+            row = layout.row()
+            row.prop(
+                current_image.camera.data.background_images[0],
+                "alpha",
+                text="Image opacity",
             )
            
 
@@ -220,6 +223,10 @@ class CurrentCameraSettings(bpy.types.Panel):
 
     bl_parent_id = "CLIP_PT_PNP_Calibrate"
     bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        return current_image_initialised(context)
 
     def draw(self, context):
         layout = self.layout

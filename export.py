@@ -275,24 +275,33 @@ def convert_camera_settings(camera_object, model, three_js=False):
     return match
 
 
-def format_as_typescript_object(camera_object, model, settings):
+def format_as_typescript_object(camera_object, model, image_match):
     """Format camera parameters as TypeScript object string
-    
+
     Args:
         camera_object: Blender camera object
         model: Blender 3D model
-        settings: Image match settings from context
-        
+        image_match: The ImageMatch property group for this camera
+
     Returns:
         Formatted TypeScript object string
     """
-    
+
     # Get camera parameters in Blender format (Z-up, WXYZ quaternions)
     position = get_camera_position_blender(camera_object)
     quaternion = get_camera_quaternion_blender(camera_object)
     fov = get_camera_fov_blender(camera_object)  # Always vertical FOV
-    aspect = get_camera_aspect_ratio(camera_object)
-    
+
+    # Use movie clip dimensions for aspect ratio (actual image size)
+    if image_match.movie_clip:
+        clip_size = image_match.movie_clip.size
+        print(f"[TS Export] image_match.name={image_match.name}, clip={image_match.movie_clip.name}, "
+              f"filepath={image_match.movie_clip.filepath}, size={clip_size[0]}x{clip_size[1]}")
+        aspect = clip_size[0] / clip_size[1] if clip_size[1] > 0 else get_camera_aspect_ratio(camera_object)
+    else:
+        print(f"[TS Export] image_match.name={image_match.name}, no movie_clip!")
+        aspect = get_camera_aspect_ratio(camera_object)
+
     # Get custom properties from camera
     ts_id = camera_object.get("ts_export_id", "camera-1")
     ts_name = camera_object.get("ts_export_name", "Camera View")
@@ -300,13 +309,11 @@ def format_as_typescript_object(camera_object, model, settings):
     ts_datetime = camera_object.get("ts_export_datetime", "2024-01-01T00:00:00Z")
     ts_description = camera_object.get("ts_export_description", "Camera view description")
     ts_tags = camera_object.get("ts_export_tags", "camera, view")
-    
-    # Get reference image path from current image match if available
+
+    # Get reference image path from this image match
     reference_image = "/path/to/image.jpg"
-    if settings.current_image_name in settings.image_matches:
-        current_image = settings.image_matches[settings.current_image_name]
-        if current_image.movie_clip and current_image.movie_clip.filepath:
-            reference_image = current_image.movie_clip.filepath
+    if image_match.movie_clip and image_match.movie_clip.filepath:
+        reference_image = image_match.movie_clip.filepath
     
     # Format the TypeScript object
     ts_object = f'''  "{ts_id}": {{
@@ -452,14 +459,14 @@ class OBJECT_OT_copy_typescript_object(Operator):
         camera = current_image.camera
 
         # Check if properties exist
-        required_props = ["ts_export_id", "ts_export_name", "ts_export_category", 
+        required_props = ["ts_export_id", "ts_export_name", "ts_export_category",
                          "ts_export_datetime", "ts_export_description", "ts_export_tags"]
         if not all(prop in camera for prop in required_props):
             self.report({"ERROR"}, "Camera TypeScript properties not initialized. Use 'Initialize Properties' button first.")
             return {"CANCELLED"}
 
         # Format as TypeScript object
-        ts_object = format_as_typescript_object(camera, settings.model, settings)
+        ts_object = format_as_typescript_object(camera, settings.model, current_image)
 
         # Copy to clipboard
         context.window_manager.clipboard = ts_object
@@ -491,15 +498,15 @@ class OBJECT_OT_copy_all_typescript_objects(Operator):
         required_props = ["ts_export_id", "ts_export_name", "ts_export_category", 
                          "ts_export_datetime", "ts_export_description", "ts_export_tags"]
         
-        for i, image_match in enumerate(settings.image_matches):
+        for image_match in settings.image_matches:
             camera = image_match.camera
-            
+
             # Check if properties exist, skip if not
             if not all(prop in camera for prop in required_props):
                 self.report({"WARNING"}, f"Skipping {camera.name} - properties not initialized")
                 continue
-                
-            ts_object = format_as_typescript_object(camera, settings.model, settings)
+
+            ts_object = format_as_typescript_object(camera, settings.model, image_match)
             ts_objects.append(ts_object)
 
         if not ts_objects:
