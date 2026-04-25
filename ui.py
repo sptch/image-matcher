@@ -79,6 +79,14 @@ class IMAGE_UL_UI(bpy.types.UIList):
         col = layout.column()
         col.label(text=image.name)
 
+        col = layout.column()
+        remove_operator = col.operator(
+            "imagematches.remove_image",
+            text="",
+            icon="TRASH",
+        )
+        remove_operator.image_name = image.name
+
 
 class ImagePanel(bpy.types.Panel):
     """Panel to add or change current image"""

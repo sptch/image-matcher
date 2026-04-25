@@ -136,6 +136,75 @@ class IMAGE_OT_swap_image(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IMAGE_OT_remove_image(bpy.types.Operator):
+    """Remove a loaded image and all associated data
+    (camera, collections, 3D points, movie clip)"""
+
+    bl_idname = "imagematches.remove_image"
+    bl_label = "Remove image"
+
+    image_name: bpy.props.StringProperty(
+        name="Image name", default="", description="Image name to remove"
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        settings = context.scene.match_settings
+
+        if self.image_name not in settings.image_matches:
+            self.report({"ERROR"}, "Image doesn't exist")
+            return {"CANCELLED"}
+
+        index = settings.image_matches.find(self.image_name)
+        image_match = settings.image_matches[index]
+
+        was_current = (settings.current_image_name == self.image_name)
+
+        for point_match in image_match.point_matches:
+            if point_match.is_point_3d_initialised and point_match.point_3d:
+                bpy.data.objects.remove(point_match.point_3d, do_unlink=True)
+
+        if image_match.points_3d_collection:
+            bpy.data.collections.remove(image_match.points_3d_collection)
+
+        if image_match.camera:
+            cam_data = image_match.camera.data
+            bpy.data.objects.remove(image_match.camera, do_unlink=True)
+            if cam_data:
+                bpy.data.cameras.remove(cam_data)
+
+        if image_match.image_collection:
+            bpy.data.collections.remove(image_match.image_collection)
+
+        if image_match.movie_clip:
+            image_match.movie_clip.use_fake_user = False
+            bpy.data.movieclips.remove(image_match.movie_clip)
+
+        settings.image_matches.remove(index)
+
+        if was_current:
+            if len(settings.image_matches) > 0:
+                new_index = min(index, len(settings.image_matches) - 1)
+                new_image = settings.image_matches[new_index]
+                settings.current_image_name = new_image.name
+                settings.active_image_index = new_index
+                if new_image.camera:
+                    context.scene.camera = new_image.camera
+                if new_image.movie_clip:
+                    open_movie_clip(new_image.movie_clip)
+                swap_point_matches(
+                    settings.image_matches, "", new_image.name
+                )
+            else:
+                settings.current_image_name = ""
+                settings.active_image_index = 0
+                context.scene.camera = None
+
+        return {"FINISHED"}
+
+
 def coordinates_within_region(region, region_coordinate):
     """Check if region coordinate is within region"""
 

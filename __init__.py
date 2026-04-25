@@ -126,6 +126,7 @@ def register_classes(unregister=False):
         ui.SceneCameraExportPanel,
         image.IMAGE_OT_add_image,
         image.IMAGE_OT_swap_image,
+        image.IMAGE_OT_remove_image,
         image.IMAGE_OT_point_mode,
         image.IMAGE_OT_add_3d_point,
         image.IMAGE_OT_add_2d_point,
