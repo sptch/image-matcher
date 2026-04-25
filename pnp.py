@@ -54,23 +54,29 @@ def get_2D_3D_point_coordinates(self, point_matches, clip, frame):
     for point_match in point_matches:
         # Only process matches with both 2D and 3D points initialized -
         # rest ignored
-        if point_match.is_point_2d_initialised and point_match.is_point_3d_initialised:
-            points_3d_coords.append(point_match.point_3d.location)
-
-            track = tracks[point_match.point_2d]
-            marker = track.markers.find_frame(frame, exact=True)
-            if marker and not marker.mute:
-                # .co runs from 0 to 1 on each axis of the image, so multiply
-                # by image size to get full coordinates
-                point_2d_coordinates = [
-                    marker.co[0] * size[0],
-                    size[1] - marker.co[1] * size[1]
-                ]
-                points_2d_coords.append(point_2d_coordinates)
-            else:
-                points_ignored = True
-        else:
+        if not (point_match.is_point_2d_initialised and point_match.is_point_3d_initialised):
             points_ignored = True
+            continue
+
+        track = tracks[point_match.point_2d]
+        marker = track.markers.find_frame(frame, exact=True)
+        if marker is None or marker.mute:
+            # Marker not present at this frame - skip both 2D AND 3D so the
+            # arrays stay aligned and same-length. (Previously the 3D point
+            # was appended even when the marker was missing, which caused
+            # mismatched array sizes and broken 2D-3D correspondences in
+            # sequence solves.)
+            points_ignored = True
+            continue
+
+        # .co runs from 0 to 1 on each axis of the image, so multiply
+        # by image size to get full coordinates
+        point_2d_coordinates = [
+            marker.co[0] * size[0],
+            size[1] - marker.co[1] * size[1]
+        ]
+        points_2d_coords.append(point_2d_coordinates)
+        points_3d_coords.append(point_match.point_3d.location)
 
     if points_ignored and hasattr(self, 'report'):
         self.report({"WARNING"}, "Ignoring points with only 2D or only 3D")
@@ -302,17 +308,34 @@ def solve_pnp(
     background_image.display_depth = "FRONT"
     background_image.clip_user.use_render_undistorted = True
 
-    camera.matrix_world = Matrix.Translation(loc) @ rot.to_4x4()
-    
+    # Force Euler rotation mode so we can keyframe rotation_euler reliably.
+    camera.rotation_mode = "XYZ"
+
+    # Decompose the world matrix ourselves and write to location/rotation_euler
+    # directly. Assigning matrix_world doesn't always flush into the exposed
+    # location/rotation_euler attributes before keyframe_insert reads them,
+    # which resulted in no keyframes appearing on the timeline.
+    new_matrix = Matrix.Translation(loc) @ rot.to_4x4()
+    camera.matrix_world = new_matrix
+    camera.location = new_matrix.to_translation()
+    camera.rotation_euler = new_matrix.to_euler("XYZ")
+
     # Insert keyframes for animation only if auto keyframe is enabled or not in live mode
     if not hasattr(settings, 'live_solve_enabled') or not settings.live_solve_enabled or settings.live_solve_auto_keyframe:
-        camera.keyframe_insert(data_path="location", frame=frame)
-        camera.keyframe_insert(data_path="rotation_euler", frame=frame)
-        camera.data.keyframe_insert(data_path="shift_x", frame=frame)
-        camera.data.keyframe_insert(data_path="shift_y", frame=frame)
-        camera.data.keyframe_insert(data_path="lens", frame=frame)
-        camera.data.keyframe_insert(data_path="sensor_height", frame=frame)
-        camera.data.keyframe_insert(data_path="sensor_fit", frame=frame)
+        def _kf(target, path):
+            try:
+                target.keyframe_insert(data_path=path, frame=frame)
+            except Exception as exc:
+                print(f"photomatch: keyframe_insert failed for {path}: {exc}")
+
+        _kf(camera, "location")
+        _kf(camera, "rotation_euler")
+        _kf(camera.data, "shift_x")
+        _kf(camera.data, "shift_y")
+        _kf(camera.data, "lens")
+        _kf(camera.data, "sensor_height")
+        # sensor_fit is an enum — keyframing enums is unreliable across Blender
+        # versions and not needed for camera pose animation, so skip it.
 
     context.scene.camera = camera
 
@@ -414,13 +437,34 @@ def calibrate_camera(
 
 
 def solve_sequence_pnp(self, context):
-    """Solve camera pose for each frame in the current frame range."""
+    """Solve camera pose for each frame in the current frame range.
+
+    Frames with fewer than 4 valid 2D-3D correspondences are skipped so
+    that a single under-marked frame doesn't abort the whole bake.
+    """
     scene = context.scene
     start_frame = scene.frame_start
     end_frame = scene.frame_end
+    solved = 0
+    skipped = 0
     for frame in range(start_frame, end_frame + 1):
         scene.frame_set(frame)
-        solve_pnp(*get_scene_info(self, context))
+        try:
+            result = solve_pnp(*get_scene_info(self, context))
+        except Exception as exc:
+            print(f"photomatch: solve_pnp raised at frame {frame}: {exc}")
+            skipped += 1
+            continue
+        if result == {"FINISHED"}:
+            solved += 1
+        else:
+            skipped += 1
+
+    if hasattr(self, 'report'):
+        self.report(
+            {"INFO"},
+            f"Sequence bake: {solved} frame(s) solved, {skipped} skipped",
+        )
     return {"FINISHED"}
 
 
@@ -562,7 +606,29 @@ def update_current_frames(self, context):
 
     keyframes = set()
     if camera.animation_data and camera.animation_data.action:
-        for fcurve in camera.animation_data.action.fcurves:
+        action = camera.animation_data.action
+
+        # Blender 4.4+ uses slotted actions. Legacy .fcurves still exists on
+        # legacy actions; slotted actions expose fcurves via
+        # layers -> strips -> channelbag(slot).fcurves.
+        fcurves_iter = []
+        if hasattr(action, "fcurves") and len(action.fcurves) > 0:
+            fcurves_iter = list(action.fcurves)
+        elif hasattr(action, "layers"):
+            slot = None
+            if camera.animation_data.action_slot:
+                slot = camera.animation_data.action_slot
+            for layer in action.layers:
+                for strip in layer.strips:
+                    if slot is not None and hasattr(strip, "channelbag"):
+                        cb = strip.channelbag(slot)
+                        if cb:
+                            fcurves_iter.extend(cb.fcurves)
+                    elif hasattr(strip, "channelbags"):
+                        for cb in strip.channelbags:
+                            fcurves_iter.extend(cb.fcurves)
+
+        for fcurve in fcurves_iter:
             for keyframe in fcurve.keyframe_points:
                 keyframes.add(int(keyframe.co[0]))
 

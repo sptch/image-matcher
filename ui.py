@@ -123,29 +123,38 @@ class ImagePanel(bpy.types.Panel):
 
         if current_image_initialised(context):
             current_image = settings.image_matches[settings.current_image_name]
-            row = layout.row(align=True)
-            row.prop(
-                current_image.camera.data,
-                "clip_start",
-                text="Clip start",
-            )
-            row.prop(
-                current_image.camera.data,
-                "clip_end",
-                text="Clip end",
-            )
-            row = layout.row()
-            row.prop(
-                current_image.camera.data,
-                "show_background_images",
-                text="Show matched image",
-            )
-            row = layout.row()
-            row.prop(
-                current_image.camera.data.background_images[0],
-                "alpha",
-                text="Image opacity",
-            )
+            if current_image.camera is None or current_image.camera.data is None:
+                row = layout.row()
+                row.label(
+                    text="Camera missing for current image",
+                    icon="ERROR",
+                )
+            else:
+                camera_data = current_image.camera.data
+                row = layout.row(align=True)
+                row.prop(
+                    camera_data,
+                    "clip_start",
+                    text="Clip start",
+                )
+                row.prop(
+                    camera_data,
+                    "clip_end",
+                    text="Clip end",
+                )
+                row = layout.row()
+                row.prop(
+                    camera_data,
+                    "show_background_images",
+                    text="Show matched image",
+                )
+                if camera_data.background_images:
+                    row = layout.row()
+                    row.prop(
+                        camera_data.background_images[0],
+                        "alpha",
+                        text="Image opacity",
+                    )
            
 
        
@@ -419,7 +428,15 @@ class TypeScriptExportSettings(bpy.types.Panel):
             
         current_image = settings.image_matches[settings.current_image_name]
         camera = current_image.camera
-        
+
+        if camera is None:
+            col = layout.column()
+            col.label(
+                text="Camera missing for current image",
+                icon="ERROR",
+            )
+            return
+
         # Check if properties exist
         has_properties = all(prop in camera for prop in [
             "ts_export_id", "ts_export_name", "ts_export_category", 

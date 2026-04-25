@@ -428,6 +428,13 @@ class OBJECT_OT_export_matches(Operator):
         for image_match in settings.image_matches:
             camera = image_match.camera
 
+            if camera is None:
+                self.report(
+                    {"WARNING"},
+                    f"Skipping {image_match.name} - camera missing",
+                )
+                continue
+
             match = convert_camera_settings(camera, settings.model, three_js)
             match["image_filename"] = image_match.full_name
             matches.append(match)
@@ -457,6 +464,10 @@ class OBJECT_OT_copy_typescript_object(Operator):
         # Get current camera
         current_image = settings.image_matches[settings.current_image_name]
         camera = current_image.camera
+
+        if camera is None:
+            self.report({"ERROR"}, "Camera missing for current image")
+            return {"CANCELLED"}
 
         # Check if properties exist
         required_props = ["ts_export_id", "ts_export_name", "ts_export_category",
@@ -500,6 +511,13 @@ class OBJECT_OT_copy_all_typescript_objects(Operator):
         
         for image_match in settings.image_matches:
             camera = image_match.camera
+
+            if camera is None:
+                self.report(
+                    {"WARNING"},
+                    f"Skipping {image_match.name} - camera missing",
+                )
+                continue
 
             # Check if properties exist, skip if not
             if not all(prop in camera for prop in required_props):

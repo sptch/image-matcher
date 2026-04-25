@@ -259,17 +259,29 @@ def delete_point_if_empty(point_matches, index):
 
 def swap_point_matches(image_matches, old_image_name, new_image_name):
     """Hide all point_matches of old_image_name, and show all point_matches
-    of new_image_name"""
+    of new_image_name.
+
+    Only objects that are present in the active view layer are toggled via
+    hide_set(). Objects whose collection is excluded from the view layer are
+    skipped: hide_viewport is NOT used as a fallback because it is a global
+    flag that greys objects in the outliner and persists across swaps.
+    """
+
+    view_layer_objs = bpy.context.view_layer.objects
 
     if old_image_name in image_matches:
         for point_match in image_matches[old_image_name].point_matches:
             if point_match.is_point_3d_initialised:
-                point_match.point_3d.hide_set(True)
+                obj = point_match.point_3d
+                if obj.name in view_layer_objs:
+                    obj.hide_set(True)
 
     if new_image_name in image_matches:
         for point_match in image_matches[new_image_name].point_matches:
             if point_match.is_point_3d_initialised:
-                point_match.point_3d.hide_set(False)
+                obj = point_match.point_3d
+                if obj.name in view_layer_objs:
+                    obj.hide_set(False)
 
 
 class IMAGE_OT_add_3d_point(bpy.types.Operator):
